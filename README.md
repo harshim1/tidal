@@ -11,7 +11,7 @@ check on an aging parent overnight — on a calm dashboard or by asking Alexa+.
 ```bash
 pip install -r requirements.txt          # needs ffmpeg on PATH for browser-playable renders
 python scripts/make_synthetic.py         # ground-truth validation clips → data/
-python -m pytest                         # 15 tests
+python -m pytest                         # 22 tests
 python scripts/demo_flow.py --keep       # Ring emulator → signed webhook → reading → Alexa+ MCP
 # open http://127.0.0.1:8000
 ```
@@ -35,11 +35,28 @@ python scripts/analyze.py data/sleeper_day.mp4 --truth data/sleeper_day.json
 ```bash
 cp .env.example .env    # set RING_ACCESS_TOKEN, RING_HMAC_KEY, TIDAL_DEVICES
 uvicorn app.server:app --port 8000      # webhook: POST /webhooks/ring (expose via HTTPS)
-python -m app.mcp_server                # Alexa+ MCP: http://<host>:8001/mcp
+python -m app.mcp_server                # Alexa+ MCP: http://<host>:8001/mcp (also served at :8000/mcp)
 ```
 
 Night check-ins over WHEP live video: `TIDAL_CHECKIN_MINUTES=15`.
 Bedrock phrasing: `TIDAL_BEDROCK=1` with AWS credentials and model access.
+
+## Deploy a public demo (Render)
+
+`render.yaml` deploys one Docker service: dashboard, API, Ring webhook and the Alexa+ MCP
+server (`/mcp`), serving the bundled synthetic night in `demo/` (re-dated to "last night"
+on every start). In Render: **New → Blueprint →** pick this repo → **Apply**.
+
+- **Dashboard:** `https://<service>.onrender.com`. The browser asks for a login: any
+  username, password = `TIDAL_PASSWORD` from the service's *Environment* tab.
+- **MCP (Alexa+ or any MCP client):** `https://<service>.onrender.com/mcp`, header
+  `Authorization: Bearer <TIDAL_MCP_TOKEN>`.
+  Smoke test: `TIDAL_MCP_TOKEN=… python scripts/mcp_smoke.py https://<service>.onrender.com/mcp`
+- The container fails closed: with `TIDAL_PUBLIC=1` (the image default) it won't start
+  without both secrets, and webhooks are rejected unless `RING_HMAC_KEY` is set.
+- Free instances (512 MB) sleep when idle (first request ≈ 1 min) and have uploads off;
+  on a 2 GB plan set `TIDAL_UPLOADS=1`. Rebuild the demo night with
+  `python scripts/build_demo_snapshot.py`.
 
 ## Repository map
 
@@ -49,6 +66,7 @@ Bedrock phrasing: `TIDAL_BEDROCK=1` with AWS credentials and model access.
 | `app/` | Ring integration, API server, MCP server, Bedrock summary, dashboard |
 | `scripts/` | demo flow, analysis CLI, synthetic data, MCP smoke test, demo seeding |
 | `tests/` | physics + integration tests |
+| `demo/` | bundled synthetic night for the hosted demo (`TIDAL_DEMO=1`) |
 | `docs/ARCHITECTURE.md` | idea, architecture, physics, maths, logic, papers, data, design, phases |
 | `docs/CHECKLIST.md` | everything left to do before submitting |
 | `docs/SUBMISSION.md` | Devpost text, video script, feedback, friction log |

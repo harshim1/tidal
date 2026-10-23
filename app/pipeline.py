@@ -65,8 +65,8 @@ def process_frames(
     return reading
 
 
-def process_video_file(path: str | Path, **meta) -> dict:
-    frames, fps = read_video(path, max_seconds=180)
+def process_video_file(path: str | Path, max_seconds: float = 180.0, **meta) -> dict:
+    frames, fps = read_video(path, max_seconds=max_seconds)
     return process_frames(frames, fps, **meta)
 
 

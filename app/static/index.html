@@ -35,6 +35,8 @@
   .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
   .pill.attention { background: var(--warn-soft); color: var(--warn); }
   .pill.restless, .pill.no_signal { background: rgba(139,152,169,.14); color: var(--dim); }
+  .demo-tag { font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+              border: 1px solid rgba(139,152,169,.35); border-radius: 99px; padding: 4px 10px; }
 
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; min-width: 0; }
@@ -98,6 +100,7 @@
     </div>
     <div class="who" id="who">Connecting…</div>
     <div class="spacer"></div>
+    <span class="demo-tag" id="demoTag" hidden title="A night of synthetic footage, analysed for real">Demo data</span>
     <span class="pill" id="pill">—</span>
   </header>
 
@@ -148,7 +151,7 @@
     <section class="card span-5">
       <h2>Try it on any video</h2>
       <p class="reason" style="max-width:none;margin-bottom:14px">Film someone lying still for 60 seconds (a phone on a shelf is fine) and drop it here. Tidal measures it exactly like a Ring clip.</p>
-      <div class="upload"><input type="file" id="file" accept="video/*"><button class="btn" id="go">Analyze</button></div>
+      <div class="upload" id="uploadBox"><input type="file" id="file" accept="video/*"><button class="btn" id="go">Analyze</button></div>
       <div class="meta" id="upmsg"></div>
     </section>
   </div>
@@ -158,6 +161,8 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+// Absolute URLs: a page opened as https://user:pass@host/ can't fetch relative paths (they'd inherit the credentials).
+const api = (path, opts) => fetch(location.origin + path, opts);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
@@ -219,7 +224,7 @@ function showReading(r) {
   const pill = $("pill"); pill.className = `pill ${r.status}`; pill.textContent = LABEL[r.status] || r.status;
   if (r.video && r.video !== currentVideo) {
     currentVideo = r.video;
-    $("videoBox").innerHTML = `<video src="/media/${r.video}" autoplay muted loop playsinline controls></video>`;
+    $("videoBox").innerHTML = `<video src="${location.origin}/media/${r.video}" autoplay muted loop playsinline controls></video>`;
   } else if (!r.video) { currentVideo = null; $("videoBox").innerHTML = '<div class="empty">No magnified render for this check-in.</div>'; }
   drawWave(r);
 }
@@ -227,9 +232,9 @@ function showReading(r) {
 async function refresh() {
   try {
     const [latest, night, list] = await Promise.all([
-      fetch(`/api/latest?tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
-      fetch(`/api/night?hours=12&tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
-      fetch("/api/readings?hours=12").then((r) => r.json()),
+      api(`/api/latest?tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
+      api(`/api/night?hours=12&tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
+      api("/api/readings?hours=12").then((r) => r.json()),
     ]);
     document.querySelectorAll(".pname").forEach((e) => (e.textContent = latest.person));
     const r = latest.reading;
@@ -253,7 +258,7 @@ async function refresh() {
 
 $("rows").addEventListener("click", async (e) => {
   const tr = e.target.closest("tr[data-id]"); if (!tr) return;
-  const { reading } = await fetch(`/api/reading/${tr.dataset.id}`).then((r) => r.json());
+  const { reading } = await api(`/api/reading/${tr.dataset.id}`).then((r) => r.json());
   pinned = reading.id !== window.__newest; showReading(reading); window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
@@ -262,13 +267,23 @@ $("go").addEventListener("click", async () => {
   $("go").disabled = true; $("upmsg").textContent = "Measuring… (about 20–40 s for a one-minute clip)";
   const body = new FormData(); body.append("file", f);
   try {
-    const res = await fetch("/api/analyze", { method: "POST", body }); const j = await res.json();
+    const res = await api("/api/analyze", { method: "POST", body }); const j = await res.json();
     if (!res.ok) throw new Error(j.detail || res.statusText);
     $("upmsg").textContent = j.reading.resp_bpm ? `Measured ${j.reading.resp_bpm.toFixed(1)} breaths/min.` : j.reading.status_reason;
     pinned = false; showReading(j.reading); refresh();
   } catch (err) { $("upmsg").textContent = `Couldn't analyse that video: ${err.message}`; }
   $("go").disabled = false;
 });
+
+api("/api/config").then((r) => r.json()).then((c) => {
+  $("demoTag").hidden = !c.demo;
+  if (!c.uploads) {
+    $("uploadBox").style.display = "none";  // .upload sets display:flex, which beats [hidden]
+    $("upmsg").textContent = "Uploads are off on this public demo. Run Tidal locally to measure your own video.";
+  } else if (c.upload_max_s < 180) {
+    $("upmsg").textContent = `The first ${Math.round(c.upload_max_s)} s of the video are analysed.`;
+  }
+}).catch(() => {});
 
 window.addEventListener("resize", () => { drawWave(shownReading); refresh(); });
 refresh(); setInterval(refresh, 8000);

@@ -85,10 +85,15 @@ def get_breathing_trend(hours: float = 168.0) -> dict[str, Any]:
 @mcp.tool()
 async def check_in_now(device_id: str | None = None, timezone: str | None = None) -> dict[str, Any]:
     """Take a fresh reading now from the Ring camera (≈1 minute of live video), then report it."""
+    if cfg.demo:
+        r = store.latest(full=False)
+        return {"ok": False, "reading": _view(r), "speech": "This is the Tidal demo, so there's no live camera to "
+                "check. " + summary.latest_speech(r, timezone)}
     dev = device_id or (cfg.watch_devices[0] if cfg.watch_devices else None)
     if not dev:
         return {"ok": False, "speech": "No camera is configured for check-ins yet."}
-    async with httpx.AsyncClient(timeout=cfg.checkin_seconds + 60) as http:
+    auth = ("tidal", cfg.password) if cfg.password else None
+    async with httpx.AsyncClient(timeout=cfg.checkin_seconds + 60, auth=auth) as http:
         resp = await http.post(f"{cfg.api_url}/api/checkin/{dev}")
     if resp.status_code != 200:
         return {"ok": False, "speech": "I couldn't reach the camera just now. I'll keep trying on schedule."}

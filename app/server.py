@@ -9,14 +9,24 @@ Routes
     GET  /api/reading/{id}       one reading
     GET  /api/night?hours=12     aggregated night + spoken summary
     GET  /api/cameras            Ring cameras on the linked account
+    GET  /api/config             what this deployment allows (demo mode, uploads)
     GET  /media/...              magnified renders
+    POST /mcp                    Alexa+ MCP server (same tools as `python -m app.mcp_server`)
     GET  /                       caregiver dashboard
+
+Access (when TIDAL_PASSWORD / TIDAL_MCP_TOKEN are set — always, with TIDAL_PUBLIC=1):
+people use HTTP Basic auth with the password (any username), MCP clients send
+``Authorization: Bearer <token>``; /healthz and the HMAC-signed webhook stay open.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
+import secrets
+import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -25,7 +35,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from ring_sandbox import SignatureError, webhooks
 
-from . import pipeline, ring, store, summary
+from . import mcp_server, pipeline, ring, store, summary
 from .config import ROOT, cfg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -33,6 +43,71 @@ log = logging.getLogger("tidal.server")
 
 # Ring event types that indicate someone in view — the moment to take a reading.
 TRIGGER_EVENTS = {"motion_detected", "motion", "ding", "doorbell_pressed"}
+
+# Bundled synthetic night for TIDAL_DEMO=1 (built by scripts/build_demo_snapshot.py).
+DEMO_DIR = ROOT / "demo"
+# The newest demo check-in is re-dated to this long ago, so the dashboard reads as "last night".
+DEMO_LAG = timedelta(minutes=12)
+
+
+def _same(a: str, b: str) -> bool:
+    return secrets.compare_digest(a.encode(), b.encode())
+
+
+def _basic_password(header: str) -> str | None:
+    scheme, _, value = header.partition(" ")
+    if scheme.lower() != "basic":
+        return None
+    try:
+        return base64.b64decode(value, validate=True).decode().partition(":")[2]
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+
+
+class AccessGate:
+    """Password for people, bearer token for MCP clients; health check and signed webhooks open.
+
+    Pure ASGI (not BaseHTTPMiddleware) so MCP's streamed responses pass straight through.
+    A no-op for whichever secret is unset, which is how local development runs.
+    """
+
+    OPEN = {"/healthz", "/webhooks/ring"}
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or scope["path"] in self.OPEN:
+            return await self.app(scope, receive, send)
+        auth = dict(scope["headers"]).get(b"authorization", b"").decode("latin-1")
+        if scope["path"].startswith("/mcp"):
+            ok = not cfg.mcp_token or _same(auth, f"Bearer {cfg.mcp_token}")
+            challenge = 'Bearer realm="Tidal MCP"'
+        else:
+            pw = _basic_password(auth)
+            ok = not cfg.password or (pw is not None and _same(pw, cfg.password))
+            challenge = 'Basic realm="Tidal", charset="UTF-8"'
+        if ok:
+            return await self.app(scope, receive, send)
+        resp = JSONResponse({"detail": "authentication required"}, 401, headers={"WWW-Authenticate": challenge})
+        await resp(scope, receive, send)
+
+
+def _restore_demo() -> None:
+    """Load the bundled demo night into an empty store (fresh container, ephemeral disk)."""
+    if store.is_empty() and (DEMO_DIR / "tidal.db").exists():
+        shutil.copy(DEMO_DIR / "tidal.db", cfg.db_path)
+        store.init()
+        renders = cfg.media_dir / "renders"
+        for f in (DEMO_DIR / "renders").glob("*.mp4"):
+            shutil.copy(f, renders / f.name)
+        log.info("demo mode: restored bundled night from %s", DEMO_DIR)
+
+
+async def _redate_demo_loop() -> None:
+    while True:
+        await asyncio.sleep(1800)
+        await asyncio.to_thread(store.redate_demo, datetime.now(UTC) - DEMO_LAG)
 
 
 def _in_night_window(now: datetime) -> bool:
@@ -82,15 +157,34 @@ def _clip_job(device_id: str, occurred_at: datetime) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    cfg.check_public()
     store.init()
-    task = asyncio.create_task(_checkin_loop()) if cfg.checkin_minutes > 0 else None
-    log.info("Tidal ready — Ring API %s, watching %s", cfg.ring_base_url, cfg.watch_devices or "all cameras")
-    yield
-    if task:
-        task.cancel()
+    tasks = []
+    if cfg.demo:
+        _restore_demo()
+        log.info("demo mode: re-dated %d readings", store.redate_demo(datetime.now(UTC) - DEMO_LAG))
+        tasks.append(asyncio.create_task(_redate_demo_loop()))
+    elif cfg.checkin_minutes > 0:
+        tasks.append(asyncio.create_task(_checkin_loop()))
+    if not cfg.ring_hmac_key:
+        log.warning("RING_HMAC_KEY is not set: every Ring webhook will be rejected")
+    log.info("Tidal ready — %s, Ring API %s, watching %s", "DEMO" if cfg.demo else "live", cfg.ring_base_url,
+             cfg.watch_devices or "all cameras")
+    async with _mcp.session_manager.run():
+        yield
+    for t in tasks:
+        t.cancel()
 
 
 app = FastAPI(title="Tidal", version="0.1.0", lifespan=lifespan)
+app.add_middleware(AccessGate)
+# Alexa+ MCP on the same host and port as the API (one service to deploy). Host-header
+# (DNS-rebinding) checks only apply on localhost; a public deployment relies on the bearer token.
+_mcp = mcp_server.mcp
+app.router.routes.extend(
+    _mcp.streamable_http_app(streamable_http_path="/mcp", host="0.0.0.0" if cfg.public else "127.0.0.1").routes
+)
+_upload_lock = asyncio.Lock()  # one analysis at a time: each holds the decoded clip in memory
 (cfg.media_dir / "renders").mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=cfg.media_dir), name="media")
 app.mount("/static", StaticFiles(directory=ROOT / "app" / "static"), name="static")
@@ -98,6 +192,8 @@ app.mount("/static", StaticFiles(directory=ROOT / "app" / "static"), name="stati
 
 @app.post("/webhooks/ring")
 async def ring_webhook(request: Request, background: BackgroundTasks) -> JSONResponse:
+    if not cfg.ring_hmac_key:
+        raise HTTPException(503, "webhook signing key not configured")
     raw = await request.body()  # verify over the raw bytes — never re-serialised JSON
     try:
         event = webhooks.parse(
@@ -119,6 +215,8 @@ async def ring_webhook(request: Request, background: BackgroundTasks) -> JSONRes
 
 @app.post("/api/checkin/{device_id}")
 async def checkin(device_id: str, mode: str = "live", background: BackgroundTasks = None) -> dict:
+    if cfg.demo:
+        raise HTTPException(403, "not available in the demo (there is no real camera)")
     if mode == "clip":
         background.add_task(_clip_job, device_id, datetime.now(UTC) - timedelta(milliseconds=cfg.clip_ms))
         return {"ok": True, "mode": "clip", "queued": True}
@@ -130,16 +228,19 @@ async def checkin(device_id: str, mode: str = "live", background: BackgroundTask
 
 @app.post("/api/analyze")
 async def analyze_upload(file: UploadFile = File(...)) -> dict:
+    if not cfg.uploads:
+        raise HTTPException(403, "uploads are turned off on this deployment")
     data = await file.read()
     if len(data) > 200 * 1024 * 1024:
         raise HTTPException(413, "video too large (200 MB max)")
-    try:
-        reading = await asyncio.to_thread(
-            pipeline.process_clip_bytes, data, device_id="upload", device_name=file.filename or "Uploaded video",
-            source="upload",
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    async with _upload_lock:
+        try:
+            reading = await asyncio.to_thread(
+                pipeline.process_clip_bytes, data, device_id="upload", device_name=file.filename or "Uploaded video",
+                source="upload", max_seconds=cfg.upload_max_s,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "reading": store.get(reading["id"])}
 
 
@@ -173,8 +274,15 @@ def night(hours: float = 12.0, tz: str | None = None) -> dict:
     return summary.night_summary(hours, tz)
 
 
+@app.get("/api/config")
+def deployment_config() -> dict:
+    return {"demo": cfg.demo, "uploads": cfg.uploads, "upload_max_s": cfg.upload_max_s, "person": cfg.person_name}
+
+
 @app.get("/api/cameras")
 def list_cameras() -> dict:
+    if cfg.demo:
+        return {"cameras": [], "demo": True}
     try:
         return {"cameras": ring.cameras()}
     except Exception as exc:  # noqa: BLE001

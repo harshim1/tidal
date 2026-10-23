@@ -18,7 +18,8 @@ class Config:
     # Ring Partner API (api.amazonvision.com) — or the local ring-sandbox emulator.
     ring_token: str = field(default_factory=lambda: _env("RING_ACCESS_TOKEN", "sandbox-token"))
     ring_base_url: str = field(default_factory=lambda: _env("RING_BASE_URL", "https://api.amazonvision.com"))
-    ring_hmac_key: str = field(default_factory=lambda: _env("RING_HMAC_KEY", "dev-hmac-key"))
+    # No default: an unset key must reject every webhook, never verify against a known value.
+    ring_hmac_key: str = field(default_factory=lambda: _env("RING_HMAC_KEY"))
     media_origins: list[str] = field(
         default_factory=lambda: [o for o in _env("RING_MEDIA_ORIGINS", "*.amazonaws.com").split(",") if o]
     )
@@ -44,6 +45,21 @@ class Config:
         default_factory=lambda: _env("BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
     )
     aws_region: str = field(default_factory=lambda: _env("AWS_REGION", "us-east-1"))
+
+    # Public hosting. TIDAL_PUBLIC=1 (the Docker default) refuses to start without a
+    # dashboard password and an MCP token — an open URL would expose someone's bedroom.
+    public: bool = field(default_factory=lambda: _env("TIDAL_PUBLIC", "0") == "1")
+    password: str = field(default_factory=lambda: _env("TIDAL_PASSWORD"))
+    mcp_token: str = field(default_factory=lambda: _env("TIDAL_MCP_TOKEN"))
+    # Demo mode: serve the bundled synthetic night (re-dated to "last night"), no camera calls.
+    demo: bool = field(default_factory=lambda: _env("TIDAL_DEMO", "0") == "1")
+    uploads: bool = field(default_factory=lambda: _env("TIDAL_UPLOADS", "1") == "1")
+    upload_max_s: float = field(default_factory=lambda: float(_env("TIDAL_UPLOAD_MAX_S", "180")))
+
+    def check_public(self) -> None:
+        missing = [n for n, v in (("TIDAL_PASSWORD", self.password), ("TIDAL_MCP_TOKEN", self.mcp_token)) if not v]
+        if self.public and missing:
+            raise RuntimeError(f"TIDAL_PUBLIC=1 needs {' and '.join(missing)} set; refusing to start unprotected")
 
 
 cfg = Config()

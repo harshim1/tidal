@@ -2,21 +2,26 @@
 """Talk to the Tidal MCP server the way Alexa+ would: list tools, call them.
 
     python scripts/mcp_smoke.py                       # http://127.0.0.1:8001/mcp
-    python scripts/mcp_smoke.py https://my-host/mcp
+    TIDAL_MCP_TOKEN=… python scripts/mcp_smoke.py https://my-host/mcp
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 
+import httpx2
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 
 async def main(url: str) -> None:
-    async with streamable_http_client(url) as streams:
+    token = os.environ.get("TIDAL_MCP_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else None
+    async with httpx2.AsyncClient(headers=headers, timeout=60) as http, \
+            streamable_http_client(url, http_client=http) as streams:
         read, write = streams[0], streams[1]
         async with ClientSession(read, write) as session:
             init = await session.initialize()

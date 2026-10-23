@@ -126,3 +126,26 @@ def clear() -> None:
     with _lock, _conn() as c:
         c.execute("DELETE FROM readings")
         c.execute("DELETE FROM webhook_seen")
+
+
+def is_empty() -> bool:
+    with _conn() as c:
+        return c.execute("SELECT 1 FROM readings LIMIT 1").fetchone() is None
+
+
+def redate_demo(newest: datetime) -> int:
+    """Shift every demo reading by the same offset so the newest starts at ``newest``.
+
+    Keeps the bundled synthetic night looking like "last night" however long ago it
+    was recorded; spacing between check-ins is unchanged. Returns rows moved.
+    """
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT id, started_at FROM readings WHERE source = 'demo'").fetchall()
+        if not rows:
+            return 0
+        offset = newest - max(datetime.fromisoformat(r["started_at"]) for r in rows)
+        c.executemany(
+            "UPDATE readings SET started_at = ? WHERE id = ?",
+            [((datetime.fromisoformat(r["started_at"]) + offset).isoformat(), r["id"]) for r in rows],
+        )
+        return len(rows)

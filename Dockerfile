@@ -4,6 +4,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-EXPOSE 8000 8001
-# API by default; run the MCP server with: docker run ... python -m app.mcp_server
-CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Fail closed: a container is a deployment, so it refuses to start without TIDAL_PASSWORD
+# and TIDAL_MCP_TOKEN. Set TIDAL_PUBLIC=0 only on a private network.
+ENV TIDAL_PUBLIC=1 PYTHONUNBUFFERED=1
+EXPOSE 8000
+# Dashboard, REST API, Ring webhook and Alexa+ MCP (/mcp) on one port ($PORT on Render).
+CMD ["sh", "-c", "exec uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
