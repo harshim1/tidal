@@ -76,7 +76,8 @@ def template_speech(agg: dict[str, Any]) -> str:
     if ev:
         first = ev[0]
         more = f", and {len(ev) - 1} other time{'s' if len(ev) > 2 else ''}" if len(ev) > 1 else ""
-        parts.append(f"One thing to know: at {first['at']}, {first['reason'][0].lower() + first['reason'][1:]}{more}")
+        reason = first["reason"].rstrip(".")
+        parts.append(f"One thing to know: at {first['at']}, {reason[0].lower() + reason[1:]}{more}.")
     else:
         parts.append("Nothing unusual stood out.")
     if agg["restless_periods"]:
