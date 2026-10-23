@@ -58,20 +58,31 @@ per-person ROIs for shared beds, phase-based magnification, senior-living pilots
 - Mini: **AWS Builder** (Bedrock Converse; hosting plan: Lambda + SQS + Fargate + DynamoDB + S3)
 - Mini: **Open Source** (`tidal-vitals` library, MIT)
 
-## 3. Demo video script (target 2:45)
+## 3. Demo video script (target 2:40, under the 3:00 limit)
 
-| Time | Picture | Words |
+Everything on screen is real and already in the repo: the hosted dashboard
+(https://tidal-su02.onrender.com), the side-by-side render (`media/demo_side_by_side.mp4`),
+`scripts/demo_flow.py` and `scripts/mcp_smoke.py`. The sleeper is synthetic footage with a
+known breathing rate, so the script says "imagine" rather than claiming a real parent.
+
+| Time | On screen | Voice-over |
 |---|---|---|
-| 0:00–0:12 | Left panel only: "camera" view of a sleeping person. Nothing moves. | "This is a Ring camera in my dad's room. He's asleep. Is he breathing?" |
-| 0:12–0:25 | Right panel fades in: magnified chest rising and falling; trace + "14 breaths/min". | "Now it's obvious. Tidal sees chest motion smaller than a pixel." |
-| 0:25–0:45 | Dashboard: orb breathing, Tonight sentence. | "The problem: wearables get left on the nightstand. Tidal uses the camera you already own." |
-| 0:45–1:25 | Terminal + dashboard: emulator injects motion → webhook → reading appears; then the breath-hold moment turns amber. | "Ring sends a signed webhook. Tidal pulls the clip and measures it. At night, when nothing triggers motion, it checks in over live video." |
-| 1:25–1:50 | MCP client: "How did Dad sleep?" → spoken answer. | "And the family just asks Alexa." |
-| 1:50–2:20 | One diagram: pixel → Taylor expansion → pyramid → band-pass → PCA → FFT. Then the validation table. | "The physics is MIT's Eulerian video magnification. Validated against ground truth — and it refuses to guess when it can't see." |
-| 2:20–2:45 | Phases slide: beta → Ring App Store → senior living. | "Tidal: zero new hardware, built on Ring, Alexa+ and AWS. Not a medical device — just peace of mind." |
+| 0:00–0:12 | `demo_side_by_side.mp4`, **left half only** (crop): a still figure under a blanket. | "Imagine this is a Ring camera in your dad's bedroom. He lives alone, it's 2 a.m., and he's asleep. Is he breathing? From this picture, you can't tell." |
+| 0:12–0:27 | Same clip, full width: the magnified right half rises and falls; the breathing trace and rate underneath. | "Tidal can. Each breath moves his chest a few millimetres — less than a pixel on a home camera. Tidal measures that motion, and here it magnifies it so you can see it." |
+| 0:27–0:45 | Hosted dashboard, top half: the breathing orb, the *Tonight* sentence, the stats. | "Wearables get forgotten, uncharged, or refused. Tidal needs no new hardware — it works on the Ring camera already in the room. This is what the family sees in the morning: one calm answer." |
+| 0:45–1:00 | Scroll to *Overnight* and *Check-ins*; point at the amber dot. | "Through the night it checks in every half hour. Most check-ins are steady. One moment is worth a look: breathing motion went quiet for about nine seconds. Amber, never red — Tidal doesn't diagnose." |
+| 1:00–1:30 | Terminal: `python scripts/demo_flow.py`. Let it run: camera added → signed motion event → reading → Alexa+ answers. | "Under the hood: Ring sends Tidal a signed webhook when there's motion. Tidal verifies the signature, downloads the clip and measures it. But a sleeping person doesn't trigger motion — so at night Tidal also opens Ring's live video on a schedule and checks in by itself." |
+| 1:30–1:50 | Terminal: `mcp_smoke.py` against the hosted `/mcp`; the spoken answers print. | "And nobody has to open an app. Tidal is an Alexa+ integration — ask 'How did Dad sleep?' and Alexa answers with the same sentence the dashboard shows." |
+| 1:50–2:15 | One slide: pixel → brightness change → magnify → filter to breathing band → combine regions → frequency. Then the validation table from the README. | "The physics is MIT's Eulerian Video Magnification and remote-sensing research. We validated it on footage with a known breathing rate, through real video compression: within a fifth of a breath per minute, even at 0.15-pixel motion and in infrared night vision." |
+| 2:15–2:30 | Validation table: highlight *empty room → no reading*. | "Just as important: when it can't see clearly — an empty bed, heavy compression — it says 'no clear reading' instead of guessing. Our first version got fooled by the video encoder; that's why the confidence check exists." |
+| 2:30–2:40 | Title card: Tidal logo, "Ring · Alexa+ · AWS", GitHub URL, "Not a medical device." | "Tidal. Peace of mind from the camera you already own. It's a wellness tool, not a medical device — and it's open source." |
 
-Record tips: 1080p screen capture, record voice separately, no music (or royalty-free
-you own), burn in captions.
+**Recording notes**
+- Open the hosted dashboard a minute before recording: the free server sleeps when idle.
+- Record the screen at 1080p, the voice separately, and add captions. No music, or only
+  royalty-free music you have rights to.
+- Hide the token in the `mcp_smoke.py` shot: set `TIDAL_MCP_TOKEN` before you start
+  recording so it never appears on screen.
 
 ## 4. Product feedback (fill in from your own experience; starters below)
 
