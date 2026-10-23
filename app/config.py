@@ -55,9 +55,20 @@ class Config:
     demo: bool = field(default_factory=lambda: _env("TIDAL_DEMO", "0") == "1")
     uploads: bool = field(default_factory=lambda: _env("TIDAL_UPLOADS", "1") == "1")
     upload_max_s: float = field(default_factory=lambda: float(_env("TIDAL_UPLOAD_MAX_S", "180")))
+    # The demo night is re-dated so its last check-in is at this hour this morning, in this zone.
+    demo_tz: str = field(default_factory=lambda: _env("TIDAL_DEMO_TZ", "America/New_York"))
+    demo_wake_hour: int = field(default_factory=lambda: int(_env("TIDAL_DEMO_WAKE_HOUR", "7")))
+
+    @property
+    def dashboard_open(self) -> bool:
+        """No password needed: the demo serves only bundled synthetic data and accepts no video."""
+        return self.demo and not self.uploads
 
     def check_public(self) -> None:
-        missing = [n for n, v in (("TIDAL_PASSWORD", self.password), ("TIDAL_MCP_TOKEN", self.mcp_token)) if not v]
+        need = [("TIDAL_MCP_TOKEN", self.mcp_token)]
+        if not self.dashboard_open:
+            need.append(("TIDAL_PASSWORD", self.password))
+        missing = [n for n, v in need if not v]
         if self.public and missing:
             raise RuntimeError(f"TIDAL_PUBLIC=1 needs {' and '.join(missing)} set; refusing to start unprotected")
 

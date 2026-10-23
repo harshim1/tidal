@@ -44,11 +44,12 @@ Bedrock phrasing: `TIDAL_BEDROCK=1` with AWS credentials and model access.
 ## Deploy a public demo (Render)
 
 `render.yaml` deploys one Docker service: dashboard, API, Ring webhook and the Alexa+ MCP
-server (`/mcp`), serving the bundled synthetic night in `demo/` (re-dated to "last night"
-on every start). In Render: **New → Blueprint →** pick this repo → **Apply**.
+server (`/mcp`), serving the bundled synthetic night in `demo/` (re-dated to end at 7:00 AM
+US Eastern this morning). In Render: **New → Blueprint →** pick this repo → **Apply**.
 
-- **Dashboard:** `https://<service>.onrender.com`. The browser asks for a login: any
-  username, password = `TIDAL_PASSWORD` from the service's *Environment* tab.
+- **Dashboard:** `https://<service>.onrender.com`, no login. The demo only serves bundled
+  synthetic data and accepts no video, so there is nothing private to protect. Turn
+  uploads on (`TIDAL_UPLOADS=1`) and the `TIDAL_PASSWORD` login comes back.
 - **MCP (Alexa+ or any MCP client):** `https://<service>.onrender.com/mcp`, header
   `Authorization: Bearer <TIDAL_MCP_TOKEN>`.
   Smoke test: `TIDAL_MCP_TOKEN=… python scripts/mcp_smoke.py https://<service>.onrender.com/mcp`

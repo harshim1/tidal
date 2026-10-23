@@ -17,6 +17,7 @@ Routes
 Access (when TIDAL_PASSWORD / TIDAL_MCP_TOKEN are set — always, with TIDAL_PUBLIC=1):
 people use HTTP Basic auth with the password (any username), MCP clients send
 ``Authorization: Bearer <token>``; /healthz and the HMAC-signed webhook stay open.
+The demo with uploads off (synthetic data only) needs no password, so judges can open it.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import secrets
 import shutil
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -46,8 +48,13 @@ TRIGGER_EVENTS = {"motion_detected", "motion", "ding", "doorbell_pressed"}
 
 # Bundled synthetic night for TIDAL_DEMO=1 (built by scripts/build_demo_snapshot.py).
 DEMO_DIR = ROOT / "demo"
-# The newest demo check-in is re-dated to this long ago, so the dashboard reads as "last night".
-DEMO_LAG = timedelta(minutes=12)
+
+
+def _demo_morning(now: datetime) -> datetime:
+    """The latest TIDAL_DEMO_WAKE_HOUR:00 (demo zone) not after ``now``: when the demo night ends."""
+    local = now.astimezone(ZoneInfo(cfg.demo_tz))
+    wake = local.replace(hour=cfg.demo_wake_hour, minute=0, second=0, microsecond=0)
+    return (wake if wake <= local else wake - timedelta(days=1)).astimezone(UTC)
 
 
 def _same(a: str, b: str) -> bool:
@@ -85,7 +92,7 @@ class AccessGate:
             challenge = 'Bearer realm="Tidal MCP"'
         else:
             pw = _basic_password(auth)
-            ok = not cfg.password or (pw is not None and _same(pw, cfg.password))
+            ok = cfg.dashboard_open or not cfg.password or (pw is not None and _same(pw, cfg.password))
             challenge = 'Basic realm="Tidal", charset="UTF-8"'
         if ok:
             return await self.app(scope, receive, send)
@@ -107,7 +114,7 @@ def _restore_demo() -> None:
 async def _redate_demo_loop() -> None:
     while True:
         await asyncio.sleep(1800)
-        await asyncio.to_thread(store.redate_demo, datetime.now(UTC) - DEMO_LAG)
+        await asyncio.to_thread(store.redate_demo, _demo_morning(datetime.now(UTC)))
 
 
 def _in_night_window(now: datetime) -> bool:
@@ -162,7 +169,7 @@ async def lifespan(_: FastAPI):
     tasks = []
     if cfg.demo:
         _restore_demo()
-        log.info("demo mode: re-dated %d readings", store.redate_demo(datetime.now(UTC) - DEMO_LAG))
+        log.info("demo mode: re-dated %d readings", store.redate_demo(_demo_morning(datetime.now(UTC))))
         tasks.append(asyncio.create_task(_redate_demo_loop()))
     elif cfg.checkin_minutes > 0:
         tasks.append(asyncio.create_task(_checkin_loop()))
@@ -258,7 +265,7 @@ def latest(tz: str | None = None) -> dict:
 
 @app.get("/api/readings")
 def readings(hours: float = 12.0) -> dict:
-    return {"readings": store.since(hours)}
+    return {"readings": store.since(hours), "window_end": store.window_end().isoformat()}
 
 
 @app.get("/api/reading/{reading_id}")

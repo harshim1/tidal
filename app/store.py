@@ -113,8 +113,17 @@ def get(reading_id: int) -> dict[str, Any] | None:
     return _row(row, True) if row else None
 
 
+def window_end() -> datetime:
+    """End of every "last N hours" window: now, or in demo mode just after the demo night's last check."""
+    if cfg.demo:
+        r = latest(full=False)
+        if r:
+            return datetime.fromisoformat(r["started_at"]) + timedelta(minutes=30)
+    return datetime.now(UTC)
+
+
 def since(hours: float, full: bool = False) -> list[dict[str, Any]]:
-    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    cutoff = (window_end() - timedelta(hours=hours)).isoformat()
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM readings WHERE started_at >= ? ORDER BY started_at ASC", (cutoff,)

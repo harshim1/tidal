@@ -146,14 +146,23 @@ def test_password_and_mcp_token(tmp_path, monkeypatch):
 def test_demo_mode_restores_and_redates_bundled_night(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
-    mods = _load(tmp_path, monkeypatch, TIDAL_DEMO="1", TIDAL_UPLOADS="0")
+    from zoneinfo import ZoneInfo
+
+    mods = _load(tmp_path, monkeypatch, TIDAL_DEMO="1", TIDAL_UPLOADS="0", TIDAL_PUBLIC="1",
+                 TIDAL_PASSWORD="pw", TIDAL_MCP_TOKEN="t0k")
     if not (mods["server"].DEMO_DIR / "tidal.db").exists():
         pytest.skip("demo snapshot not built (python scripts/build_demo_snapshot.py)")
     with TestClient(mods["server"].app) as c:
+        # Synthetic data, no uploads: judges open it without a password; MCP still needs its token.
         latest = c.get("/api/latest").json()["reading"]
-        age = datetime.now(UTC) - datetime.fromisoformat(latest["started_at"])
-        assert timedelta(0) < age < timedelta(minutes=30)
-        assert c.get("/api/night").json()["check_ins"] > 10
+        assert c.post("/mcp", json={}).status_code == 401
+        # The night ends at 7:00 AM New York time this morning (or yesterday, before 7).
+        end = datetime.fromisoformat(latest["started_at"]).astimezone(ZoneInfo("America/New_York"))
+        assert (end.hour, end.minute) == (7, 0)
+        assert timedelta(0) <= datetime.now(UTC) - end < timedelta(days=1)
+        # Windows follow the demo night, not the clock, so "Tonight" covers it all day.
+        assert c.get("/api/night").json()["check_ins"] == 22
+        assert len(c.get("/api/readings").json()["readings"]) == 22
         assert c.get(f"/media/{latest['video']}").status_code == 200
         assert c.get("/api/config").json() == {"demo": True, "uploads": False, "upload_max_s": 180.0,
                                                "person": "Dad"}

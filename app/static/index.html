@@ -19,10 +19,10 @@
     --mono: "IBM Plex Mono", ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
-  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
-    background: radial-gradient(900px 500px at 15% -10%, rgba(94,203,214,.08), transparent 60%),
-                radial-gradient(700px 400px at 100% 0%, rgba(127,140,214,.06), transparent 60%); }
+  body { margin: 0; color: var(--ink); font: 15px/1.5 var(--sans);
+    background: radial-gradient(900px 500px at 15% -10%, rgba(94,203,214,.08), transparent 60%) no-repeat,
+                radial-gradient(700px 400px at 100% 0%, rgba(127,140,214,.06), transparent 60%) no-repeat,
+                var(--bg); }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 16px 60px; position: relative; }
   header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
   .brand { display: flex; align-items: center; gap: 10px; font: 500 26px/1 var(--display); letter-spacing: .5px; }
@@ -106,7 +106,7 @@
 
   <div class="grid">
     <section class="card span-5 orb-card">
-      <h2>Right now</h2>
+      <h2>Latest check-in</h2>
       <div class="orb idle" id="orb"><div class="ring"></div><div class="ring"></div><div class="ring"></div>
         <div class="rate" id="rate">--<small>breaths / min</small></div></div>
       <p class="reason" id="reason">Waiting for the first check-in.</p>
@@ -142,13 +142,13 @@
       <div class="legend"><span><i style="background:var(--tide-soft);border:1px solid var(--tide)"></i>usual resting range (12–20)</span><span><i style="background:var(--tide)"></i>steady</span><span><i style="background:var(--warn)"></i>moment to note</span><span><i style="background:var(--faint)"></i>moving / no reading</span></div>
     </section>
 
-    <section class="card span-7">
+    <section class="card span-7" id="checkinsCard">
       <h2>Check-ins</h2>
       <div class="tablewrap"><table><thead><tr><th>Time</th><th>Camera</th><th>Breaths/min</th><th>Quality</th><th>Status</th></tr></thead>
       <tbody id="rows"><tr><td colspan="5" class="empty">No check-ins yet.</td></tr></tbody></table></div>
     </section>
 
-    <section class="card span-5">
+    <section class="card span-5" id="uploadCard">
       <h2>Try it on any video</h2>
       <p class="reason" style="max-width:none;margin-bottom:14px">Film someone lying still for 60 seconds (a phone on a shelf is fine) and drop it here. Tidal measures it exactly like a Ring clip.</p>
       <div class="upload" id="uploadBox"><input type="file" id="file" accept="video/*"><button class="btn" id="go">Analyze</button></div>
@@ -167,7 +167,7 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
 const LABEL = { steady: "Steady", attention: "Worth a look", restless: "Moving", no_signal: "No reading" };
-let shownReading = null, currentVideo = null, pinned = false;
+let shownReading = null, currentVideo = null, pinned = false, windowEnd = null, lastData = "", lastWidth = 0;
 
 function sizeCanvas(c) {
   const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.getAttribute("height");
@@ -193,7 +193,7 @@ function drawNight(rows) {
   const [g, w, h] = sizeCanvas($("night"));
   g.clearRect(0, 0, w, h);
   const padL = 34, padR = 12, top = 10, bot = 26, lo = 6, hi = 30;
-  const now = Date.now(), start = now - 12 * 3600e3;
+  const now = windowEnd ? +new Date(windowEnd) : Date.now(), start = now - 12 * 3600e3;
   const x = (t) => padL + ((t - start) / (now - start)) * (w - padL - padR);
   const y = (v) => top + (1 - (v - lo) / (hi - lo)) * (h - top - bot);
   g.fillStyle = css("--tide-soft"); g.fillRect(padL, y(20), w - padL - padR, y(12) - y(20));
@@ -224,10 +224,16 @@ function showReading(r) {
   const pill = $("pill"); pill.className = `pill ${r.status}`; pill.textContent = LABEL[r.status] || r.status;
   if (r.video && r.video !== currentVideo) {
     currentVideo = r.video;
-    $("videoBox").innerHTML = `<video src="${location.origin}/media/${r.video}" autoplay muted loop playsinline controls></video>`;
+    $("videoBox").innerHTML = `<video src="${location.origin}/media/${r.video}" autoplay muted loop playsinline controls preload="auto"></video>`;
+    videoSeen.observe($("videoBox").firstChild);
   } else if (!r.video) { currentVideo = null; $("videoBox").innerHTML = '<div class="empty">No magnified render for this check-in.</div>'; }
   drawWave(r);
 }
+
+// Decoding the magnified clip off-screen costs frames while scrolling: play it only when visible.
+const videoSeen = new IntersectionObserver((entries) => entries.forEach((e) => {
+  if (e.isIntersecting) e.target.play().catch(() => {}); else e.target.pause();
+}), { threshold: 0.1 });
 
 async function refresh() {
   try {
@@ -236,17 +242,22 @@ async function refresh() {
       api(`/api/night?hours=12&tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
       api("/api/readings?hours=12").then((r) => r.json()),
     ]);
-    document.querySelectorAll(".pname").forEach((e) => (e.textContent = latest.person));
     const r = latest.reading;
     $("who").innerHTML = r ? `<b>${latest.person}</b> · ${r.device_name} · last check ${ago(r.started_at)}` : `<b>${latest.person}</b> · no check-ins yet`;
     if (!pinned && r && (!shownReading || r.id !== shownReading.id)) showReading(r);
     if (!r && !shownReading) showReading(null);
+    // Nothing new since the last poll: leave the chart, table and text alone.
+    const data = JSON.stringify([night, list]);
+    if (data === lastData) return;
+    lastData = data;
+    document.querySelectorAll(".pname").forEach((e) => (e.textContent = latest.person));
     $("speech").textContent = night.speech;
     $("s-med").textContent = night.resp_median ?? "–";
     $("s-range").textContent = night.resp_min != null ? `${Math.round(night.resp_min)}–${Math.round(night.resp_max)}` : "–";
     $("s-checks").textContent = night.check_ins;
     $("s-att").textContent = night.attention_events.length;
     const rows = list.readings;
+    windowEnd = list.window_end;
     window.__newest = r && r.id;
     drawNight(rows);
     $("rows").innerHTML = rows.length ? rows.slice().reverse().map((x) => `<tr class="clickable" data-id="${x.id}">
@@ -278,15 +289,25 @@ $("go").addEventListener("click", async () => {
 api("/api/config").then((r) => r.json()).then((c) => {
   $("demoTag").hidden = !c.demo;
   if (!c.uploads) {
-    $("uploadBox").style.display = "none";  // .upload sets display:flex, which beats [hidden]
-    $("upmsg").textContent = "Uploads are off on this public demo. Run Tidal locally to measure your own video.";
+    $("uploadCard").remove();
+    $("checkinsCard").classList.replace("span-7", "span-12");
   } else if (c.upload_max_s < 180) {
     $("upmsg").textContent = `The first ${Math.round(c.upload_max_s)} s of the video are analysed.`;
   }
 }).catch(() => {});
 
-window.addEventListener("resize", () => { drawWave(shownReading); refresh(); });
-refresh(); setInterval(refresh, 8000);
+// Phones fire resize while scrolling (the address bar hides): redraw only on a real width change, once it settles.
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    drawWave(shownReading); lastData = ""; refresh();
+  }, 200);
+});
+lastWidth = window.innerWidth;
+refresh(); setInterval(refresh, 30000);
 </script>
 </body>
 </html>
