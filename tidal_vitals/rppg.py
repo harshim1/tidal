@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 
 from . import signal as sig
-from .blocks import block_means, gross_motion_mask, to_gray
+from .blocks import block_means, gross_motion_mask_rgb
 
 _P = np.array([[0.0, 1.0, -1.0], [-2.0, 1.0, 1.0]])
 
@@ -82,11 +82,11 @@ def estimate_pulse(
 ) -> PulseResult:
     if fs < 2 * band[1] + 0.5:
         return PulseResult(None, 0.0, float("-inf"), 0.0)
-    rgb, grid = block_means(frames_rgb.astype(np.float32), block_px)  # [n, T, 3]
+    rgb, grid = block_means(frames_rgb, block_px)  # [n, T, 3]
     skin = skin_mask_blocks(frames_rgb, grid, block_px)
     cand = np.flatnonzero(skin) if skin.sum() >= 2 else np.arange(rgb.shape[0])
     h = pos(rgb[cand] + 1.0, fs)
-    motion = gross_motion_mask(to_gray(frames_rgb), fs)
+    motion = gross_motion_mask_rgb(frames_rgb, fs)
     h = sig.bandpass(h, fs, band)
     snr = sig.band_snr(h, fs, band)
     order_local = np.argsort(snr)[::-1][: min(top_k, len(cand))]

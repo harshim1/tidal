@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import itertools
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 import cv2
@@ -30,8 +32,13 @@ def read_video(
         fps = 15.0  # Ring clips occasionally report 0/garbage; 15 fps is Ring's common rate
     if start_seconds > 0:
         cap.set(cv2.CAP_PROP_POS_MSEC, start_seconds * 1000)
-    frames: list[np.ndarray] = []
     limit = int(max_seconds * fps) if max_seconds else None
+    # Fill a preallocated array (list + np.stack would briefly hold the clip twice);
+    # the container's frame count is only a hint, so grow if it was low.
+    cap_n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    est = max(1, min(cap_n, limit) if limit and cap_n > 0 else cap_n or limit or 256)
+    out: np.ndarray | None = None
+    n = 0
     while True:
         ok, bgr = cap.read()
         if not ok:
@@ -40,24 +47,34 @@ def read_video(
         scale = max_side / max(h, w)
         if scale < 1.0:
             bgr = cv2.resize(bgr, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA)
-        frames.append(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-        if limit and len(frames) >= limit:
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        if out is None:
+            out = np.empty((est,) + rgb.shape, np.uint8)
+        elif n == len(out):
+            out = np.concatenate([out, np.empty_like(out)])
+        out[n] = rgb
+        n += 1
+        if limit and n >= limit:
             break
     cap.release()
-    if not frames:
+    if out is None:
         raise ValueError(f"no decodable frames in {path}")
-    return np.stack(frames), float(fps)
+    return out[:n], float(fps)
 
 
-def write_video(frames_rgb: np.ndarray | list[np.ndarray], fps: float, out_path: str | Path, crf: int = 20) -> Path:
+def write_video(frames_rgb: Iterable[np.ndarray], fps: float, out_path: str | Path, crf: int = 20) -> Path:
     """Write frames as H.264 MP4 (browser-playable) when ffmpeg is present.
 
-    Falls back to OpenCV's MPEG-4 Part 2 encoder, which plays in VLC but not
-    in most browsers.
+    ``frames_rgb`` may be a generator, so long renders never hold every frame in
+    memory. Falls back to OpenCV's MPEG-4 Part 2 encoder, which plays in VLC but
+    not in most browsers (generators can't fall back: they are already consumed).
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    first = frames_rgb[0]
+    seq = frames_rgb if isinstance(frames_rgb, (list, tuple, np.ndarray)) else None
+    it = iter(frames_rgb)
+    first = next(it)
+    frames_rgb = itertools.chain([first], it)
     h, w = first.shape[:2]
     # libx264 + yuv420p needs even dimensions.
     h2, w2 = h - h % 2, w - w % 2
@@ -78,6 +95,9 @@ def write_video(frames_rgb: np.ndarray | list[np.ndarray], fps: float, out_path:
         proc.stdin.close()
         if proc.wait() == 0:
             return out_path
+        if seq is None:
+            raise RuntimeError("ffmpeg failed while encoding a streamed video")
+        frames_rgb = seq
     writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w2, h2))
     for f in frames_rgb:
         writer.write(cv2.cvtColor(np.ascontiguousarray(f[:h2, :w2]).astype(np.uint8), cv2.COLOR_RGB2BGR))

@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from . import signal as sig
-from .blocks import block_means, gross_motion_mask, to_gray
+from .blocks import gray_block_means, gross_motion_mask_rgb, to_gray
 
 # Below this confidence Tidal says "no clear reading" instead of a number.
 # Chosen on a 6-seed sweep of each synthetic scenario through H.264: every true signal
@@ -94,10 +94,10 @@ def _spatial_coherence(blocks: np.ndarray, grid: tuple[int, int]) -> float:
 
 
 def _block_contrast(gray: np.ndarray, block: int) -> np.ndarray:
-    """Mean gradient magnitude per block (time-averaged frame) — the "gain" ∂I/∂x."""
+    """Mean gradient magnitude per block of the time-averaged grey frames — the "gain" ∂I/∂x."""
     import cv2
 
-    mean = gray[:: max(1, len(gray) // 20)].mean(axis=0).astype(np.float32)
+    mean = gray.mean(axis=0).astype(np.float32)
     gx = cv2.Sobel(mean, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(mean, cv2.CV_32F, 0, 1, ksize=3)
     mag = np.sqrt(gx * gx + gy * gy)
@@ -129,10 +129,10 @@ def estimate_breathing(
 ) -> BreathingResult:
     t = frames_rgb.shape[0]
     duration = t / fs
-    gray = to_gray(frames_rgb)
-    motion = gross_motion_mask(gray, fs)
+    # Grey is derived chunk by chunk: a full-clip float copy is the biggest memory cost.
+    motion = gross_motion_mask_rgb(frames_rgb, fs)
 
-    series, grid = block_means(gray, block_px)  # [n_blocks, T]
+    series, grid = gray_block_means(frames_rgb, block_px)  # [n_blocks, T]
     series, changed_frac = _fill_held_samples(series)
     series = _interp_masked(series, motion)
     # Illumination model I(x,t) = L(t)·R(x,t): divide out the global light level.
@@ -142,7 +142,7 @@ def estimate_breathing(
     series = series - np.median(series, axis=0, keepdims=True)
     # Blocks on flat, untextured surfaces carry no motion information (gain ∂I/∂x ≈ 0);
     # weight them down via their spatial contrast so noise-only blocks can't win the ROI.
-    contrast = _block_contrast(gray, block_px)
+    contrast = _block_contrast(to_gray(frames_rgb[:: max(1, t // 20)]), block_px)
     series = sig.detrend_smoothness_priors(series, lam=max(50.0, 20.0 * fs))
     filt = sig.bandpass(series, fs, band)
 

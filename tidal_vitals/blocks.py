@@ -10,23 +10,41 @@ from __future__ import annotations
 
 import numpy as np
 
+# Frames converted to float32 at once — bounds peak memory on long clips.
+CHUNK = 64
+
 
 def block_means(frames: np.ndarray, block: int) -> tuple[np.ndarray, tuple[int, int]]:
     """frames[T,H,W] or [T,H,W,C] → series[n_blocks, T(, C)], grid (gh, gw)."""
     t, h, w = frames.shape[:3]
     gh, gw = h // block, w // block
-    f = frames[:, : gh * block, : gw * block].astype(np.float32)
-    if f.ndim == 3:
-        f = f.reshape(t, gh, block, gw, block).mean(axis=(2, 4))
-        return f.reshape(t, gh * gw).T, (gh, gw)
-    c = f.shape[-1]
-    f = f.reshape(t, gh, block, gw, block, c).mean(axis=(2, 4))
-    return f.reshape(t, gh * gw, c).transpose(1, 0, 2), (gh, gw)
+    shape = (gh, block, gw, block) + frames.shape[3:]
+    out = np.empty((t, gh, gw) + frames.shape[3:], np.float32)
+    for s in range(0, t, CHUNK):  # float32 copies a chunk at a time, not the whole clip
+        f = frames[s : s + CHUNK, : gh * block, : gw * block].astype(np.float32)
+        out[s : s + CHUNK] = f.reshape((len(f),) + shape).mean(axis=(2, 4))
+    if frames.ndim == 3:
+        return out.reshape(t, gh * gw).T, (gh, gw)
+    return out.reshape(t, gh * gw, frames.shape[-1]).transpose(1, 0, 2), (gh, gw)
 
 
 def to_gray(frames_rgb: np.ndarray) -> np.ndarray:
-    f = frames_rgb.astype(np.float32)
-    return 0.299 * f[..., 0] + 0.587 * f[..., 1] + 0.114 * f[..., 2]
+    out = np.empty(frames_rgb.shape[:3], np.float32)
+    for s in range(0, len(frames_rgb), CHUNK):
+        f = frames_rgb[s : s + CHUNK].astype(np.float32)
+        out[s : s + CHUNK] = 0.299 * f[..., 0] + 0.587 * f[..., 1] + 0.114 * f[..., 2]
+    return out
+
+
+def gray_block_means(frames_rgb: np.ndarray, block: int) -> tuple[np.ndarray, tuple[int, int]]:
+    """``block_means(to_gray(frames_rgb), block)`` without a full-clip grey copy."""
+    parts = [block_means(to_gray(frames_rgb[s : s + CHUNK]), block) for s in range(0, len(frames_rgb), CHUNK)]
+    return np.concatenate([p for p, _ in parts], axis=1), parts[0][1]
+
+
+def gross_motion_mask_rgb(frames_rgb: np.ndarray, fs: float, **kwargs) -> np.ndarray:
+    """``gross_motion_mask(to_gray(frames_rgb), fs)``, converting only the half-res pixels it reads."""
+    return _motion_mask(to_gray(frames_rgb[:, ::2, ::2]), fs, **kwargs)
 
 
 def gross_motion_mask(
@@ -42,16 +60,25 @@ def gross_motion_mask(
     pixels by tens of levels. Codec key-frames change many pixels by ~1 level
     and are ignored.
     """
-    t = gray.shape[0]
+    return _motion_mask(gray[:, ::2, ::2], fs, level, area, lag_s, pad_s)
+
+
+def _motion_mask(
+    small: np.ndarray, fs: float, level: float = 8.0, area: float = 0.02, lag_s: float = 0.5, pad_s: float = 2.0
+) -> np.ndarray:
+    """gross_motion_mask on an already half-resolution grey clip."""
+    t = small.shape[0]
     lag = max(1, int(round(lag_s * fs)))
     if t <= lag:
         return np.zeros(t, dtype=bool)
-    small = gray[:, ::2, ::2]
     k = np.ones((3, 3), np.float32) / 9.0
     import cv2  # local import keeps module import cheap
 
-    small = np.stack([cv2.filter2D(f, -1, k) for f in small])
-    frac = (np.abs(small[lag:] - small[:-lag]) > level).mean(axis=(1, 2))
+    blur = np.empty_like(small)
+    for i, f in enumerate(small):
+        cv2.filter2D(f, -1, k, dst=blur[i])
+    # Per frame, not one full-clip difference array: keeps peak memory near one clip copy.
+    frac = np.array([(np.abs(blur[i] - blur[i - lag]) > level).mean() for i in range(lag, t)])
     frac = np.concatenate([np.zeros(lag), frac])
     mask = frac > area
     pad = int(pad_s * fs)

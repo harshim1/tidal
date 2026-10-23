@@ -63,8 +63,8 @@ def render_overlay_video(
 
     mag = MotionMagnifier(fs, band=band, alpha=alpha, lambda_c=lambda_c)
     win_lookup = breathing.windows
-    out_frames = []
-    for i in range(t_total):
+
+    def _canvas(i: int) -> np.ndarray:
         t = i / fs
         m = mag.process(frames_rgb[i])
         canvas = np.full((out_h, out_w, 3), BG, np.uint8)
@@ -106,5 +106,7 @@ def render_overlay_video(
             _label(canvas, txt, (out_w - 205, y0 + 62), 1.6, INK, 3)
             _label(canvas, "breaths / min", (out_w - 205, y0 + 88), 0.5, DIM)
         _label(canvas, f"{t:5.1f}s", (out_w - 80, y0 + sh - 8), 0.45, DIM)
-        out_frames.append(canvas)
-    return write_video(out_frames, fs, out_path, crf=20)
+        return canvas
+
+    # Stream canvases to the encoder: holding ~1.5 MB per frame costs GBs on long clips.
+    return write_video((_canvas(i) for i in range(t_total)), fs, out_path, crf=20)
