@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #0b111a; --panel: #111a26; --panel-2: #16212f; --line: #223044;
+    --ink: #e8edf3; --dim: #8b98a9; --faint: #5b6879;
+    --tide: #5ecbd6; --tide-soft: rgba(94, 203, 214, .14);
+    --warn: #f5b05c; --warn-soft: rgba(245, 176, 92, .14);
+    --calm: #7fd69b;
+    --radius: 18px;
+    --display: "Fraunces", Georgia, serif;
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(900px 500px at 15% -10%, rgba(94,203,214,.08), transparent 60%),
+                radial-gradient(700px 400px at 100% 0%, rgba(127,140,214,.06), transparent 60%); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 16px 60px; position: relative; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 500 26px/1 var(--display); letter-spacing: .5px; }
+  .brand svg { width: 30px; height: 30px; }
+  .who { color: var(--dim); font-size: 14px; }
+  .who b { color: var(--ink); font-weight: 600; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 99px;
+    font: 500 13px var(--sans); background: var(--tide-soft); color: var(--tide); }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.attention { background: var(--warn-soft); color: var(--warn); }
+  .pill.restless, .pill.no_signal { background: rgba(139,152,169,.14); color: var(--dim); }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; min-width: 0; }
+  .card h2 { margin: 0 0 14px; font: 600 12px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; } .span-12 { grid-column: span 12; }
+  .span-6 { grid-column: span 6; }
+  @media (max-width: 900px) { .span-5, .span-7, .span-6 { grid-column: span 12; } }
+
+  /* breathing orb */
+  .orb-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .orb { position: relative; width: 250px; height: 250px; margin: 6px 0 14px; display: grid; place-items: center; }
+  .orb .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--tide);
+    opacity: .5; animation: breathe var(--period, 4.3s) ease-in-out infinite; }
+  .orb .ring:nth-child(2) { inset: 22px; opacity: .3; animation-delay: calc(var(--period, 4.3s) * -.08); }
+  .orb .ring:nth-child(3) { inset: 44px; opacity: .18; background: var(--tide-soft); animation-delay: calc(var(--period, 4.3s) * -.16); }
+  .orb.paused .ring { animation-play-state: paused; border-color: var(--warn); }
+  .orb.idle .ring { animation: none; border-color: var(--faint); }
+  @keyframes breathe { 0%, 100% { transform: scale(.86); } 45% { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .orb .ring { animation: none; } }
+  .rate { position: relative; font: 300 76px/1 var(--display); }
+  .rate small { display: block; font: 500 12px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+  .reason { color: var(--dim); max-width: 34ch; margin: 0; }
+  .meta { margin-top: 10px; font: 12px var(--mono); color: var(--faint); }
+
+  /* spoken summary */
+  .speech { font: 300 23px/1.45 var(--display); margin: 0 0 16px; }
+  .ask { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--dim);
+    border: 1px dashed var(--line); border-radius: 99px; padding: 6px 12px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+  .stat { background: var(--panel-2); border-radius: 12px; padding: 12px; }
+  .stat b { display: block; font: 500 24px/1.1 var(--display); }
+  .stat span { font-size: 12px; color: var(--dim); }
+  @media (max-width: 520px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  canvas { width: 100%; display: block; }
+  video { width: 100%; border-radius: 12px; background: #000; display: block; }
+  .empty { color: var(--faint); font-size: 14px; padding: 28px 0; text-align: center; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--dim); margin-top: 10px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  th { font: 600 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  td.num { font-family: var(--mono); }
+  tr.clickable { cursor: pointer; } tr.clickable:hover td { background: var(--panel-2); }
+  .tablewrap { overflow: auto; max-height: 460px; }
+
+  .upload { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .btn { background: var(--tide); color: #062026; border: 0; border-radius: 10px; padding: 10px 16px; font: 600 14px var(--sans); cursor: pointer; }
+  .btn[disabled] { opacity: .5; cursor: progress; }
+  input[type=file] { color: var(--dim); max-width: 100%; }
+  footer { margin-top: 28px; color: var(--faint); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 19c4 0 4-6 8-6s4 6 8 6 4-6 8-6 4 3 4 3" fill="none" stroke="#5ecbd6" stroke-width="2.2" stroke-linecap="round"/><path d="M2 25c4 0 4-4 8-4s4 4 8 4 4-4 8-4 4 2 4 2" fill="none" stroke="#5ecbd6" stroke-opacity=".45" stroke-width="2" stroke-linecap="round"/></svg>
+      tidal
+    </div>
+    <div class="who" id="who">Connecting…</div>
+    <div class="spacer"></div>
+    <span class="pill" id="pill">—</span>
+  </header>
+
+  <div class="grid">
+    <section class="card span-5 orb-card">
+      <h2>Right now</h2>
+      <div class="orb idle" id="orb"><div class="ring"></div><div class="ring"></div><div class="ring"></div>
+        <div class="rate" id="rate">--<small>breaths / min</small></div></div>
+      <p class="reason" id="reason">Waiting for the first check-in.</p>
+      <div class="meta" id="meta"></div>
+    </section>
+
+    <section class="card span-7">
+      <h2>Tonight</h2>
+      <p class="speech" id="speech">…</p>
+      <span class="ask">🗣️ Also on Alexa+: “Alexa, how did <span class="pname">Dad</span> sleep?”</span>
+      <div class="stats">
+        <div class="stat"><b id="s-med">–</b><span>median / min</span></div>
+        <div class="stat"><b id="s-range">–</b><span>range</span></div>
+        <div class="stat"><b id="s-checks">–</b><span>check-ins</span></div>
+        <div class="stat"><b id="s-att">–</b><span>moments to note</span></div>
+      </div>
+    </section>
+
+    <section class="card span-6">
+      <h2>What Tidal sees</h2>
+      <div id="videoBox"><div class="empty">The magnified clip from the latest check-in appears here.</div></div>
+    </section>
+
+    <section class="card span-6">
+      <h2>Breathing waveform · latest check-in</h2>
+      <canvas id="wave" height="220"></canvas>
+      <div class="legend"><span><i style="background:var(--tide)"></i>chest motion</span><span><i style="background:var(--warn)"></i>motion paused</span></div>
+    </section>
+
+    <section class="card span-12">
+      <h2>Overnight</h2>
+      <canvas id="night" height="200"></canvas>
+      <div class="legend"><span><i style="background:var(--tide-soft);border:1px solid var(--tide)"></i>usual resting range (12–20)</span><span><i style="background:var(--tide)"></i>steady</span><span><i style="background:var(--warn)"></i>moment to note</span><span><i style="background:var(--faint)"></i>moving / no reading</span></div>
+    </section>
+
+    <section class="card span-7">
+      <h2>Check-ins</h2>
+      <div class="tablewrap"><table><thead><tr><th>Time</th><th>Camera</th><th>Breaths/min</th><th>Quality</th><th>Status</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty">No check-ins yet.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="card span-5">
+      <h2>Try it on any video</h2>
+      <p class="reason" style="max-width:none;margin-bottom:14px">Film someone lying still for 60 seconds (a phone on a shelf is fine) and drop it here. Tidal measures it exactly like a Ring clip.</p>
+      <div class="upload"><input type="file" id="file" accept="video/*"><button class="btn" id="go">Analyze</button></div>
+      <div class="meta" id="upmsg"></div>
+    </section>
+  </div>
+  <footer>Tidal is a wellness awareness tool, not a medical device. It does not diagnose, treat, or replace medical monitoring.</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+const LABEL = { steady: "Steady", attention: "Worth a look", restless: "Moving", no_signal: "No reading" };
+let shownReading = null, currentVideo = null, pinned = false;
+
+function sizeCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.getAttribute("height");
+  c.width = w * dpr; c.height = h * dpr; const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, w, +h];
+}
+
+function drawWave(r) {
+  const [g, w, h] = sizeCanvas($("wave"));
+  g.clearRect(0, 0, w, h);
+  if (!r || !r.waveform || !r.waveform.length) { g.fillStyle = css("--faint"); g.font = "14px IBM Plex Sans"; g.fillText("No waveform yet", 12, h / 2); return; }
+  const wf = r.waveform, fs = r.waveform_fs, dur = wf.length / fs, pad = 24;
+  const x = (t) => pad + (t / dur) * (w - pad * 2), y = (v) => h / 2 - Math.max(-1, Math.min(1, v / 3)) * (h / 2 - 18);
+  g.fillStyle = css("--warn-soft");
+  (r.pauses || []).forEach(([a, b]) => g.fillRect(x(a), 8, x(b) - x(a), h - 30));
+  g.strokeStyle = css("--line"); g.lineWidth = 1; g.beginPath(); g.moveTo(pad, h / 2); g.lineTo(w - pad, h / 2); g.stroke();
+  g.strokeStyle = css("--tide"); g.lineWidth = 2; g.beginPath();
+  wf.forEach((v, i) => { const px = x(i / fs), py = y(v); i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke();
+  g.fillStyle = css("--faint"); g.font = "11px IBM Plex Mono";
+  for (let t = 0; t <= dur; t += 10) g.fillText(`${t}s`, x(t) - 8, h - 6);
+}
+
+function drawNight(rows) {
+  const [g, w, h] = sizeCanvas($("night"));
+  g.clearRect(0, 0, w, h);
+  const padL = 34, padR = 12, top = 10, bot = 26, lo = 6, hi = 30;
+  const now = Date.now(), start = now - 12 * 3600e3;
+  const x = (t) => padL + ((t - start) / (now - start)) * (w - padL - padR);
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * (h - top - bot);
+  g.fillStyle = css("--tide-soft"); g.fillRect(padL, y(20), w - padL - padR, y(12) - y(20));
+  g.fillStyle = css("--faint"); g.font = "11px IBM Plex Mono";
+  [10, 15, 20, 25].forEach((v) => g.fillText(v, 6, y(v) + 4));
+  for (let k = 0; k <= 12; k += 2) { const t = start + k * 3600e3; g.fillText(new Date(t).toLocaleTimeString([], { hour: "numeric" }), x(t) - 12, h - 6); }
+  if (!rows.length) { g.fillText("No check-ins in the last 12 hours", padL + 10, h / 2); return; }
+  const pts = rows.filter((r) => r.resp_bpm).map((r) => [x(+new Date(r.started_at)), y(Math.max(lo, Math.min(hi, r.resp_bpm)))]);
+  if (pts.length > 1) { g.strokeStyle = "rgba(94,203,214,.35)"; g.lineWidth = 1.5; g.beginPath(); pts.forEach(([px, py], i) => i ? g.lineTo(px, py) : g.moveTo(px, py)); g.stroke(); }
+  rows.forEach((r) => {
+    const px = x(+new Date(r.started_at));
+    const py = r.resp_bpm ? y(Math.max(lo, Math.min(hi, r.resp_bpm))) : h - bot - 6;
+    g.fillStyle = r.status === "attention" ? css("--warn") : r.status === "steady" ? css("--tide") : css("--faint");
+    g.beginPath(); g.arc(px, py, r.status === "attention" ? 6 : 4, 0, Math.PI * 2); g.fill();
+  });
+}
+
+function showReading(r) {
+  shownReading = r;
+  const orb = $("orb");
+  orb.classList.remove("idle", "paused");
+  if (!r) { orb.classList.add("idle"); return; }
+  $("rate").firstChild.nodeValue = r.resp_bpm ? Math.round(r.resp_bpm) : "--";
+  $("reason").textContent = r.status_reason;
+  $("meta").textContent = `${r.device_name} · ${fmtTime(r.started_at)} · ${Math.round(r.duration_s)} s analysed · quality ${(r.resp_quality ?? 0).toFixed(2)}` + (r.pulse_bpm && r.pulse_quality >= .6 ? ` · pulse ≈ ${Math.round(r.pulse_bpm)} (experimental)` : "");
+  if (r.resp_bpm) orb.style.setProperty("--period", `${(60 / r.resp_bpm).toFixed(2)}s`); else orb.classList.add("idle");
+  if (r.status === "attention" && r.pauses && r.pauses.length) orb.classList.add("paused");
+  const pill = $("pill"); pill.className = `pill ${r.status}`; pill.textContent = LABEL[r.status] || r.status;
+  if (r.video && r.video !== currentVideo) {
+    currentVideo = r.video;
+    $("videoBox").innerHTML = `<video src="/media/${r.video}" autoplay muted loop playsinline controls></video>`;
+  } else if (!r.video) { currentVideo = null; $("videoBox").innerHTML = '<div class="empty">No magnified render for this check-in.</div>'; }
+  drawWave(r);
+}
+
+async function refresh() {
+  try {
+    const [latest, night, list] = await Promise.all([
+      fetch(`/api/latest?tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
+      fetch(`/api/night?hours=12&tz=${encodeURIComponent(tz)}`).then((r) => r.json()),
+      fetch("/api/readings?hours=12").then((r) => r.json()),
+    ]);
+    document.querySelectorAll(".pname").forEach((e) => (e.textContent = latest.person));
+    const r = latest.reading;
+    $("who").innerHTML = r ? `<b>${latest.person}</b> · ${r.device_name} · last check ${ago(r.started_at)}` : `<b>${latest.person}</b> · no check-ins yet`;
+    if (!pinned && r && (!shownReading || r.id !== shownReading.id)) showReading(r);
+    if (!r && !shownReading) showReading(null);
+    $("speech").textContent = night.speech;
+    $("s-med").textContent = night.resp_median ?? "–";
+    $("s-range").textContent = night.resp_min != null ? `${Math.round(night.resp_min)}–${Math.round(night.resp_max)}` : "–";
+    $("s-checks").textContent = night.check_ins;
+    $("s-att").textContent = night.attention_events.length;
+    const rows = list.readings;
+    window.__newest = r && r.id;
+    drawNight(rows);
+    $("rows").innerHTML = rows.length ? rows.slice().reverse().map((x) => `<tr class="clickable" data-id="${x.id}">
+      <td>${fmtTime(x.started_at)}</td><td>${x.device_name}</td><td class="num">${x.resp_bpm ? x.resp_bpm.toFixed(1) : "–"}</td>
+      <td class="num">${(x.resp_quality ?? 0).toFixed(2)}</td><td><span class="pill ${x.status}">${LABEL[x.status] || x.status}</span></td></tr>`).join("")
+      : '<tr><td colspan="5" class="empty">No check-ins yet.</td></tr>';
+  } catch (e) { $("who").textContent = "Can't reach the Tidal server."; }
+}
+
+$("rows").addEventListener("click", async (e) => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  const { reading } = await fetch(`/api/reading/${tr.dataset.id}`).then((r) => r.json());
+  pinned = reading.id !== window.__newest; showReading(reading); window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+$("go").addEventListener("click", async () => {
+  const f = $("file").files[0]; if (!f) { $("upmsg").textContent = "Choose a video first."; return; }
+  $("go").disabled = true; $("upmsg").textContent = "Measuring… (about 20–40 s for a one-minute clip)";
+  const body = new FormData(); body.append("file", f);
+  try {
+    const res = await fetch("/api/analyze", { method: "POST", body }); const j = await res.json();
+    if (!res.ok) throw new Error(j.detail || res.statusText);
+    $("upmsg").textContent = j.reading.resp_bpm ? `Measured ${j.reading.resp_bpm.toFixed(1)} breaths/min.` : j.reading.status_reason;
+    pinned = false; showReading(j.reading); refresh();
+  } catch (err) { $("upmsg").textContent = `Couldn't analyse that video: ${err.message}`; }
+  $("go").disabled = false;
+});
+
+window.addEventListener("resize", () => { drawWave(shownReading); refresh(); });
+refresh(); setInterval(refresh, 8000);
+</script>
+</body>
+</html>

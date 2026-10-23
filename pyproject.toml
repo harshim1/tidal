@@ -1,0 +1,15 @@
+[project]
+name = "tidal-vitals"
+version = "0.1.0"
+description = "Contactless vital signs from ordinary video: Eulerian magnification, respiration, POS pulse."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "opencv-python-headless>=4.8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tidal_vitals"]
