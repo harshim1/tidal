@@ -6,3 +6,6 @@ media/renders/
 media/ring/
 .pytest_cache/
 .venv/
+video/build/
+video/out/
+video/recordings/

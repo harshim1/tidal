@@ -77,6 +77,9 @@ known breathing rate, so the script says "imagine" rather than claiming a real p
 | 2:15–2:30 | Validation table: highlight *empty room → no reading*. | "Just as important: when it can't see clearly — an empty bed, heavy compression — it says 'no clear reading' instead of guessing. Our first version got fooled by the video encoder; that's why the confidence check exists." |
 | 2:30–2:40 | Title card: Tidal logo, "Ring · Alexa+ · AWS", GitHub URL, "Not a medical device." | "Tidal. Peace of mind from the camera you already own. It's a wellness tool, not a medical device — and it's open source." |
 
+**Building it:** `video/make_video.py` assembles the whole video; see [video/README.md](../video/README.md)
+for what to record and how to drop it in.
+
 **Recording notes**
 - Open the hosted dashboard a minute before recording: the free server sleeps when idle.
 - Record the screen at 1080p, the voice separately, and add captions. No music, or only
