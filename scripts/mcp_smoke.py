@@ -17,9 +17,19 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 
+def check_auth(url: str, headers: dict | None) -> None:
+    """Fail with a plain message on a bad token — the MCP client only reports a generic error."""
+    probe = httpx2.post(url, json={}, headers={**(headers or {}), "Accept": "application/json, text/event-stream"},
+                        timeout=90)
+    if probe.status_code == 401:
+        raise SystemExit("401 from the server: set TIDAL_MCP_TOKEN to the token from the host "
+                         "(Render: the service's Environment tab), not a placeholder.")
+
+
 async def main(url: str) -> None:
     token = os.environ.get("TIDAL_MCP_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else None
+    check_auth(url, headers)
     async with httpx2.AsyncClient(headers=headers, timeout=60) as http, \
             streamable_http_client(url, http_client=http) as streams:
         read, write = streams[0], streams[1]
