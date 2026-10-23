@@ -28,8 +28,12 @@ from . import signal as sig
 from .blocks import block_means, gross_motion_mask, to_gray
 
 # Below this confidence Tidal says "no clear reading" instead of a number.
-# Chosen on the validation set: every true signal ≥ 0.9, every empty/starved clip < 0.5.
+# Chosen on a 6-seed sweep of each synthetic scenario through H.264: every true signal
+# ≥ 0.8, every empty-room / codec-starved clip ≤ 0.35.
 REPORT_THRESHOLD = 0.6
+# Codec update share → confidence factor ramps 0 → 1 between these. True signals measured
+# ≥ 0.73 (IR night lowest); empty rooms ≤ 0.39, codec-starved ≤ 0.05.
+CODEC_RAMP = (0.2, 0.7)
 
 
 @dataclass
@@ -197,7 +201,10 @@ def estimate_breathing(
             base
             * (0.4 + 0.6 * agree)  # rate stable across windows
             * float(np.clip((spatial - 0.3) / 0.4, 0.0, 1.0))  # one contiguous moving surface
-            * (1.0 if codec >= 0.35 else 0.6)  # codec-starved footage is untrustworthy
+            # Codec-starved footage is untrustworthy: blocks the encoder holds and refreshes
+            # together share a fake in-band rhythm. A ramp, not a step — a cliff at one value
+            # let empty rooms just above it report a rate.
+            * float(np.clip((codec - CODEC_RAMP[0]) / (CODEC_RAMP[1] - CODEC_RAMP[0]), 0.0, 1.0))
         )
     else:
         rate, quality = None, overall.quality * 0.5

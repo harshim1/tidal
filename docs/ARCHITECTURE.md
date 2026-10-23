@@ -212,7 +212,7 @@ pumping and slow daylight drift that otherwise masquerade as breathing.
 H.264 sends unchanged ("skip") macroblocks for static regions, turning a smooth signal
 into an irregular staircase. For each block Tidal keeps only frames where the value
 changed and linearly interpolates between them. The share of updated frames is kept as
-`codec_update_fraction`; below 0.35 the confidence is penalised (Section 5).
+`codec_update_fraction`; the confidence ramps down from 1 at 0.7 to 0 at 0.2 (Section 5).
 
 ### 4.4 Detrending (Tarvainen smoothness priors)
 ẑ = (I − (I + λ²D₂ᵀD₂)⁻¹) z, D₂ the second-difference matrix. Removes residual drift
@@ -259,11 +259,14 @@ levels; rolling over changes thousands by tens.
 **Confidence** (0–1) = mean window quality
 × (0.4 + 0.6·agreement)        — share of windows within ±2 /min of the median
 × clip((spatial − 0.3)/0.4)      — one contiguous moving surface (8-connected ROI)
-× (1.0 if codec ≥ 0.35 else 0.6) — footage the codec actually updated
+× clip((codec − 0.2)/0.5)        — footage the codec actually updated
 
 **Report a number only if confidence ≥ 0.6.** Otherwise: "no clear reading".
-On the validation set every true signal scores ≥ 0.9 and every empty-room or
-codec-starved clip scores < 0.5 — the threshold sits in the gap.
+On a sweep of 6 seeds per scenario through H.264 (48 clips) every true signal scores
+≥ 0.8 and every empty-room or codec-starved clip ≤ 0.35 — the threshold sits in the gap.
+An earlier step penalty (×0.6 below 0.35 codec updates) let 3 of 6 empty rooms report a
+rate at 0.73–0.96: their encoder-held wall blocks updated on 35–39 % of frames, just
+above the cliff. True signals update on ≥ 73 % of frames, so a ramp separates them cleanly.
 
 **Status**
 | Status | Rule | Caregiver copy |
@@ -318,8 +321,8 @@ roll-over, H.264). Results (`python scripts/analyze.py data/<clip>.mp4 --truth �
 | sleeper_slow | 8.75 | 8.77 | 1.00 | flagged "outside usual range" |
 | sleeper_fast | 25.00 | 25.01 | 1.00 | pulse 91.8 vs 92 (1 % amplitude) |
 | sleeper_faint | 15.00 | 14.90 | 1.00 | only 0.15 px motion, σ=3 noise |
-| empty_room | — | **no reading** | 0.49 | correct refusal |
-| codec_starved | — | **no reading** | 0.22 | correct refusal (3 % frames updated) |
+| empty_room | — | **no reading** | 0.18 | correct refusal |
+| codec_starved | — | **no reading** | 0.00 | correct refusal (3 % frames updated) |
 
 **Finding worth telling the Ring team:** heavy compression of a static night scene
 makes the encoder skip most macroblocks; the first version of the estimator then

@@ -69,6 +69,15 @@ def test_empty_room_reports_nothing():
     assert estimate_breathing(frames, spec.fps).rate_bpm is None
 
 
+@pytest.mark.parametrize("seed", [100, 103, 104])  # seeds that read 0.73–0.96 under the old step penalty
+def test_empty_room_through_h264_reports_nothing(tmp_path, seed):
+    spec = SynthSpec(duration_s=60, resp_amplitude_px=0.0, pulse_amplitude=0.0, pause=None, noise_sigma=2.5, seed=seed)
+    frames, _ = render(spec)
+    f2, fs = read_video(write_video(frames, spec.fps, tmp_path / "e.mp4", crf=18))
+    b = estimate_breathing(f2, fs)
+    assert b.rate_bpm is None and b.quality < 0.4, b.quality
+
+
 def test_survives_h264(tmp_path, sleeper):
     spec, frames, gt = sleeper
     path = write_video(frames, spec.fps, tmp_path / "c.mp4", crf=18)

@@ -5,3 +5,4 @@ data/tidal.db
 media/renders/
 media/ring/
 .pytest_cache/
+.venv/
